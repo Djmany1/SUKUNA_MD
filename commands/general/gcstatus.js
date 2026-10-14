@@ -59,6 +59,8 @@ const STATUS_FG_ARGB = hexToArgb(TEXT_FG_COLOR);
 // ── OFFICIAL CHANNEL (View Channel pill on every status post) ─────────────
 const CHANNEL_JID  = '120363426805095237@newsletter';
 const CHANNEL_NAME = 'Sukuna MD Pasqua tech';
+const STATUS_RING_EMOJI = String(process.env.GCSTATUS_RING_EMOJI || '🩷').trim() || '🩷';
+const STATUS_RING_NAME = String(process.env.GCSTATUS_RING_NAME || 'SUKUNA MD').trim() || 'SUKUNA MD';
 function buildChannelCtx() {
     return {
         isForwarded: true,
@@ -70,13 +72,33 @@ function buildChannelCtx() {
         },
     };
 }
+// WhatsApp uses this audience metadata when rendering a group-status entry in
+// the status list. Keeping it in contextInfo works for both the native
+// groupStatus:true path and the generated groupStatusMessageV2 fallback.
+// The command remains fully compatible when older clients ignore these fields.
+function buildStatusAudienceCtx() {
+    return {
+        isGroupStatus: true,
+        statusSourceType: 1,
+        pairedMediaType: 0,
+        statusAudienceMetadata: {
+            audienceType: 2,
+            listName: STATUS_RING_NAME,
+            listEmoji: STATUS_RING_EMOJI,
+        },
+    };
+}
 function attachChannelCtxToInner(inner) {
     const keys = ['extendedTextMessage','imageMessage','videoMessage','audioMessage','documentMessage','stickerMessage'];
     for (const k of keys) {
         if (inner && inner[k]) {
             inner[k] = {
                 ...inner[k],
-                contextInfo: { ...(inner[k].contextInfo || {}), ...buildChannelCtx() },
+                contextInfo: {
+                    ...(inner[k].contextInfo || {}),
+                    ...buildStatusAudienceCtx(),
+                    ...buildChannelCtx(),
+                },
             };
         }
     }
@@ -215,7 +237,7 @@ async function postGroupStatus(sock, groupJid, content) {
         const payload = {
             ...rest,
             groupStatus: true,
-            contextInfo: { ...buildChannelCtx() },
+            contextInfo: { ...buildStatusAudienceCtx(), ...buildChannelCtx() },
         };
         if (isTextPost && !hasMedia) payload.richPreview = true;
         if (backgroundColor && payload.text) payload.backgroundColor = backgroundColor;
