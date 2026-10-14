@@ -59,8 +59,26 @@ const STATUS_FG_ARGB = hexToArgb(TEXT_FG_COLOR);
 // ── OFFICIAL CHANNEL (View Channel pill on every status post) ─────────────
 const CHANNEL_JID  = '120363426805095237@newsletter';
 const CHANNEL_NAME = 'Sukuna MD Pasqua tech';
-const STATUS_RING_EMOJI = String(process.env.GCSTATUS_RING_EMOJI || '🩷').trim() || '🩷';
-const STATUS_RING_NAME = String(process.env.GCSTATUS_RING_NAME || 'SUKUNA MD').trim() || 'SUKUNA MD';
+const STATUS_RING_EMOJI = String(process.env.GCSTATUS_RING_EMOJI || '🩸').trim() || '🩸';
+const STATUS_RING_NAME = String(process.env.GCSTATUS_RING_NAME || 'Pasqua').trim() || 'Pasqua';
+const STATUS_RING_PALETTE = {
+    red:    '#E53935',
+    pink:   '#E91E8C',
+    blue:   '#2196F3',
+    yellow: '#F4C20D',
+    purple: '#9C27B0',
+};
+const STATUS_RING_CYCLE = ['red', 'pink', 'blue', 'yellow', 'purple'];
+
+function getStatusRingColor() {
+    const requested = String(process.env.GCSTATUS_RING_COLOR || '').trim().toLowerCase();
+    if (STATUS_RING_PALETTE[requested]) return requested;
+    // Rotate predictably by day so all clients see the same colour and the
+    // ring changes naturally without adding state or affecting gcstatus.
+    const day = Math.floor(Date.now() / 86_400_000);
+    return STATUS_RING_CYCLE[day % STATUS_RING_CYCLE.length];
+}
+
 function buildChannelCtx() {
     return {
         isForwarded: true,
@@ -77,6 +95,7 @@ function buildChannelCtx() {
 // groupStatus:true path and the generated groupStatusMessageV2 fallback.
 // The command remains fully compatible when older clients ignore these fields.
 function buildStatusAudienceCtx() {
+    const ringColor = getStatusRingColor();
     return {
         isGroupStatus: true,
         statusSourceType: 1,
@@ -85,6 +104,10 @@ function buildStatusAudienceCtx() {
             audienceType: 2,
             listName: STATUS_RING_NAME,
             listEmoji: STATUS_RING_EMOJI,
+            // Kept alongside listEmoji for forks/clients that expose the
+            // audience ring colour separately.
+            ringColor,
+            ringColorHex: STATUS_RING_PALETTE[ringColor],
         },
     };
 }
