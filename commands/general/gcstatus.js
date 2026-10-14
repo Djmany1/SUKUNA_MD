@@ -623,6 +623,23 @@ async function postGroupStatusLinkPreview(sock, groupJid, url, ringColorOverride
     const effectiveRingColor = normaliseStatusColor(ringColorOverride) || getStatusRingColor();
     const preview = await fetchLinkPreview(url);
 
+    // Preferred path: let @pasqua-baileys build the complete rich preview.
+    // Its thumbnail-link upload carries the HQ direct path and media keys that
+    // WhatsApp clients need to render a clear large card inside group status.
+    try {
+        return await sock.sendMessage(groupJid, {
+            text: url,
+            richPreview: true,
+            groupStatus: true,
+            contextInfo: buildStatusAudienceCtx(effectiveRingColor),
+            ...(preview.title ? { previewTitle: preview.title } : {}),
+            ...(preview.description ? { previewDescription: preview.description } : {}),
+            ...(preview.imageBuffer ? { previewImage: preview.imageBuffer } : {}),
+        });
+    } catch (error) {
+        console.error('[gcstatus] native rich link preview failed, falling back:', error.message);
+    }
+
     // A native link preview is always rendered from a thumbnail by WhatsApp.
     // When an OG image is available, send that image as the actual group-status
     // media instead. This is the only reliable way to keep the photo sharp on
@@ -825,9 +842,8 @@ module.exports = Object.assign(module.exports, {
                 // If the quoted message had a link preview, relay it intact
                 const hasPreview = !!(quoted?.extendedTextMessage?.contextInfo?.externalAdReply);
                 if (hasPreview) {
-                    const relayMsg  = extractRelaySourceMessage(quoted);
-                    const relayCtx  = extractRelaySourceContextInfo(msg);
-                    await postRelayGroupStatus(sock, from, relayMsg, relayCtx, msg, selectedColor);
+                    const quotedUrl = quotedText.match(/https?:\/\/[^\s]+/i)?.[0] || quotedText;
+                    await postGroupStatusLinkPreview(sock, from, quotedUrl, selectedColor);
                 } else {
                     await postGroupStatus(sock, from, {
                         text:            quotedText,
@@ -868,7 +884,19 @@ module.exports = Object.assign(module.exports, {
         if (relaySourceMessage) {
             await reply('⏳ _Posting link preview to group status…_');
             try {
-                await postRelayGroupStatus(sock, from, relaySourceMessage, relaySourceContextInfo, msg, selectedColor);
+                const previewUrl = String(
+                    currentExt?.matchedText ||
+                    currentExt?.canonicalUrl ||
+                    relaySourceMessage?.extendedTextMessage?.matchedText ||
+                    relaySourceMessage?.extendedTextMessage?.canonicalUrl ||
+                    ''
+                )
+                    .match(/https?:\/\/[^\s]+/i)?.[0];
+                if (previewUrl) {
+                    await postGroupStatusLinkPreview(sock, from, previewUrl, selectedColor);
+                } else {
+                    await postRelayGroupStatus(sock, from, relaySourceMessage, relaySourceContextInfo, msg, selectedColor);
+                }
                 return reply(
                     `✅ *Posted to group status!*\n` +
                     `━━━━━━━━━━━━━━━━\n` +
