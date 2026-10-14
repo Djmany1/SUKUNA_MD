@@ -59,8 +59,8 @@ const STATUS_FG_ARGB = hexToArgb(TEXT_FG_COLOR);
 // ── OFFICIAL CHANNEL (View Channel pill on every status post) ─────────────
 const CHANNEL_JID  = '120363426805095237@newsletter';
 const CHANNEL_NAME = 'Sukuna MD Pasqua tech';
-const STATUS_RING_EMOJI = String(process.env.GCSTATUS_RING_EMOJI || '🩸').trim() || '🩸';
-const STATUS_RING_NAME = String(process.env.GCSTATUS_RING_NAME || 'Pasqua').trim() || 'Pasqua';
+const STATUS_RING_EMOJI = '🩸';
+const STATUS_RING_NAME = 'Pasqua';
 const STATUS_RING_PALETTE = {
     red:    '#E53935',
     pink:   '#E91E8C',
@@ -69,14 +69,18 @@ const STATUS_RING_PALETTE = {
     purple: '#9C27B0',
 };
 const STATUS_RING_CYCLE = ['red', 'pink', 'blue', 'yellow', 'purple'];
+let statusRingIndex = 0;
+const STATUS_COLOR_ALIASES = {
+    magenta: 'pink',
+    violet: 'purple',
+    orange: 'yellow',
+    gold: 'yellow',
+};
 
 function getStatusRingColor() {
-    const requested = String(process.env.GCSTATUS_RING_COLOR || '').trim().toLowerCase();
-    if (STATUS_RING_PALETTE[requested]) return requested;
-    // Rotate predictably by day so all clients see the same colour and the
-    // ring changes naturally without adding state or affecting gcstatus.
-    const day = Math.floor(Date.now() / 86_400_000);
-    return STATUS_RING_CYCLE[day % STATUS_RING_CYCLE.length];
+    const colour = STATUS_RING_CYCLE[statusRingIndex % STATUS_RING_CYCLE.length];
+    statusRingIndex += 1;
+    return colour;
 }
 
 function buildChannelCtx() {
@@ -94,8 +98,22 @@ function buildChannelCtx() {
 // the status list. Keeping it in contextInfo works for both the native
 // groupStatus:true path and the generated groupStatusMessageV2 fallback.
 // The command remains fully compatible when older clients ignore these fields.
-function buildStatusAudienceCtx() {
-    const ringColor = getStatusRingColor();
+function normaliseStatusColor(value) {
+    const key = String(value || '').trim().toLowerCase();
+    return STATUS_RING_PALETTE[key] ? key : STATUS_COLOR_ALIASES[key] || null;
+}
+
+function parseStatusColor(value) {
+    const raw = String(value || '').trim();
+    const words = raw.split(/\s+/).filter(Boolean);
+    const last = normaliseStatusColor(words[words.length - 1]);
+    if (!last) return { text: raw, color: null };
+    words.pop();
+    return { text: words.join(' ').trim(), color: last };
+}
+
+function buildStatusAudienceCtx(ringColorOverride) {
+    const ringColor = normaliseStatusColor(ringColorOverride) || getStatusRingColor();
     return {
         isGroupStatus: true,
         statusSourceType: 1,
@@ -111,7 +129,7 @@ function buildStatusAudienceCtx() {
         },
     };
 }
-function attachChannelCtxToInner(inner) {
+function attachChannelCtxToInner(inner, ringColorOverride) {
     const keys = ['extendedTextMessage','imageMessage','videoMessage','audioMessage','documentMessage','stickerMessage'];
     for (const k of keys) {
         if (inner && inner[k]) {
@@ -119,7 +137,7 @@ function attachChannelCtxToInner(inner) {
                 ...inner[k],
                 contextInfo: {
                     ...(inner[k].contextInfo || {}),
-                    ...buildStatusAudienceCtx(),
+                    ...buildStatusAudienceCtx(ringColorOverride),
                     ...buildChannelCtx(),
                 },
             };
@@ -250,8 +268,9 @@ function resolveGroupDisplayName(metadata, groupJid) {
 }
 
 async function postGroupStatus(sock, groupJid, content) {
+    const effectiveRingColor = normaliseStatusColor(content?.ringColor) || getStatusRingColor();
     try {
-        const { backgroundColor, previewTitle, previewDescription, previewImage, ...rest } = content;
+        const { backgroundColor, ringColor, previewTitle, previewDescription, previewImage, ...rest } = content;
         // richPreview ONLY makes sense for text/link posts. WhatsApp rejects
         // it on media (image/video/audio/document/sticker) with:
         //   "richPreview requires a `text` field containing the URL"
@@ -260,7 +279,7 @@ async function postGroupStatus(sock, groupJid, content) {
         const payload = {
             ...rest,
             groupStatus: true,
-            contextInfo: { ...buildStatusAudienceCtx(), ...buildChannelCtx() },
+            contextInfo: { ...buildStatusAudienceCtx(effectiveRingColor), ...buildChannelCtx() },
         };
         if (isTextPost && !hasMedia) payload.richPreview = true;
         if (backgroundColor && payload.text) payload.backgroundColor = backgroundColor;
@@ -269,7 +288,7 @@ async function postGroupStatus(sock, groupJid, content) {
             if (previewDescription) payload.previewDescription = previewDescription;
             if (previewImage)       payload.previewImage       = previewImage;
             // Keep the native color metadata on direct/fallback link posts too.
-            payload.backgroundArgb = STATUS_BG_ARGB;
+            payload.backgroundArgb = hexToArgb(backgroundColor || TEXT_BG_COLOR);
             payload.textArgb = STATUS_FG_ARGB;
             payload.font = 0;
         }
@@ -278,15 +297,16 @@ async function postGroupStatus(sock, groupJid, content) {
         console.error('[gcstatus] groupStatus:true path failed, falling back to relay:', e.message);
     }
 
-    const { backgroundColor } = content;
+    const { backgroundColor, ringColor } = content;
     const payload = { ...content };
     delete payload.backgroundColor;
+    delete payload.ringColor;
 
     const inner = await generateWAMessageContent(payload, {
         upload: sock.waUploadToServer,
         backgroundColor: backgroundColor || TEXT_BG_COLOR,
     });
-    attachChannelCtxToInner(inner);
+    attachChannelCtxToInner(inner, effectiveRingColor);
 
     const secret = crypto.randomBytes(32);
     const msg = generateWAMessageFromContent(
@@ -367,7 +387,8 @@ function extractRelaySourceContextInfo(msg) {
     );
 }
 
-async function postRelayGroupStatus(sock, groupJid, innerMessage, extraContextInfo, quotedMsg) {
+async function postRelayGroupStatus(sock, groupJid, innerMessage, extraContextInfo, quotedMsg, ringColorOverride) {
+    const effectiveRingColor = normaliseStatusColor(ringColorOverride) || getStatusRingColor();
     try {
         const ext = innerMessage?.extendedTextMessage;
         if (ext) {
@@ -378,6 +399,7 @@ async function postRelayGroupStatus(sock, groupJid, innerMessage, extraContextIn
                     ...(extraContextInfo?.externalAdReply
                         ? { externalAdReply: extraContextInfo.externalAdReply }
                         : {}),
+                    ...buildStatusAudienceCtx(effectiveRingColor),
                     ...buildChannelCtx(),
                 },
             };
@@ -403,7 +425,7 @@ async function postRelayGroupStatus(sock, groupJid, innerMessage, extraContextIn
             },
         };
     }
-    attachChannelCtxToInner(inner);
+    attachChannelCtxToInner(inner, effectiveRingColor);
 
     const msg = generateWAMessageFromContent(
         groupJid,
@@ -597,7 +619,8 @@ async function relayNativeGroupInviteStatus(sock, groupJid, meta, inviteLink, gr
     return msg;
 }
 
-async function postGroupStatusLinkPreview(sock, groupJid, url) {
+async function postGroupStatusLinkPreview(sock, groupJid, url, ringColorOverride) {
+    const effectiveRingColor = normaliseStatusColor(ringColorOverride) || getStatusRingColor();
     const preview = await fetchLinkPreview(url);
 
     // A native link preview is always rendered from a thumbnail by WhatsApp.
@@ -611,6 +634,7 @@ async function postGroupStatusLinkPreview(sock, groupJid, url) {
         return postGroupStatus(sock, groupJid, {
             image: preview.imageBuffer,
             caption: lines.join('\\n\\n'),
+            ringColor: effectiveRingColor,
         });
     }
 
@@ -630,6 +654,7 @@ async function postGroupStatusLinkPreview(sock, groupJid, url) {
         return postGroupStatus(sock, groupJid, {
             text:        url,
             richPreview: true,
+            ringColor: effectiveRingColor,
             ...(preview.title       ? { previewTitle:       preview.title }       : {}),
             ...(preview.description ? { previewDescription: preview.description } : {}),
             ...(preview.imageBuffer ? { previewImage:       preview.imageBuffer } : {}),
@@ -642,7 +667,7 @@ async function postGroupStatusLinkPreview(sock, groupJid, url) {
         inner.extendedTextMessage.textArgb = STATUS_FG_ARGB;
         inner.extendedTextMessage.font = 0;
     }
-    attachChannelCtxToInner(inner);
+    attachChannelCtxToInner(inner, effectiveRingColor);
 
     const secret = crypto.randomBytes(32);
     const msg_relay = generateWAMessageFromContent(
@@ -695,6 +720,10 @@ module.exports = Object.assign(module.exports, {
         }
 
         const caption = args.join(' ').trim();
+        const parsedCaption = parseStatusColor(caption);
+        const statusCaption = parsedCaption.text;
+        const selectedColor = parsedCaption.color;
+        const selectedBackground = selectedColor ? STATUS_RING_PALETTE[selectedColor] : TEXT_BG_COLOR;
         const ctx     = getQuotedCtx(msg);
         const quoted  = unwrapQuotedDeep(ctx?.quotedMessage || null);
 
@@ -707,13 +736,14 @@ module.exports = Object.assign(module.exports, {
                 const buf  = await downloadMedia(imgMsg, type);
                 await postGroupStatus(sock, from, {
                     image:   buf,
-                    caption: caption || '',
+                    caption: statusCaption || '',
+                    ringColor: selectedColor,
                 });
                 return reply(
                     `✅ *Posted to group status!*\n` +
                     `━━━━━━━━━━━━━━━━\n` +
                     `📸 Type: *Image*\n` +
-                    (caption ? `💬 Caption: _${caption}_` : ``)
+                    (statusCaption ? `💬 Caption: _${statusCaption}_` : ``)
                 );
             } catch (err) {
                 return reply(`❌ _Failed to post image: ${err.message}_`);
@@ -727,13 +757,14 @@ module.exports = Object.assign(module.exports, {
                 const buf = await downloadMedia(quoted.videoMessage, 'video');
                 await postGroupStatus(sock, from, {
                     video:   buf,
-                    caption: caption || '',
+                    caption: statusCaption || '',
+                    ringColor: selectedColor,
                 });
                 return reply(
                     `✅ *Posted to group status!*\n` +
                     `━━━━━━━━━━━━━━━━\n` +
                     `🎥 Type: *Video*\n` +
-                    (caption ? `💬 Caption: _${caption}_` : ``)
+                    (statusCaption ? `💬 Caption: _${statusCaption}_` : ``)
                 );
             } catch (err) {
                 return reply(`❌ _Failed to post video: ${err.message}_`);
@@ -752,6 +783,7 @@ module.exports = Object.assign(module.exports, {
                     audio:    buf,
                     mimetype: 'audio/ogg; codecs=opus',
                     ptt:      true,
+                    ringColor: selectedColor,
                 });
 
                 // Also post to personal status
@@ -795,11 +827,12 @@ module.exports = Object.assign(module.exports, {
                 if (hasPreview) {
                     const relayMsg  = extractRelaySourceMessage(quoted);
                     const relayCtx  = extractRelaySourceContextInfo(msg);
-                    await postRelayGroupStatus(sock, from, relayMsg, relayCtx, msg);
+                    await postRelayGroupStatus(sock, from, relayMsg, relayCtx, msg, selectedColor);
                 } else {
                     await postGroupStatus(sock, from, {
                         text:            quotedText,
-                        backgroundColor: isUrl ? undefined : TEXT_BG_COLOR,
+                        backgroundColor: isUrl ? (selectedColor ? selectedBackground : undefined) : selectedBackground,
+                        ringColor: selectedColor,
                     });
                 }
                 return reply(
@@ -821,7 +854,7 @@ module.exports = Object.assign(module.exports, {
         let relaySourceMessage    = null;
         let relaySourceContextInfo = null;
 
-        if (hasCurrentPreview && !caption) {
+        if (hasCurrentPreview && !statusCaption) {
             relaySourceMessage     = { extendedTextMessage: currentExt };
             relaySourceContextInfo = currentCtx;
         } else if (quoted) {
@@ -835,7 +868,7 @@ module.exports = Object.assign(module.exports, {
         if (relaySourceMessage) {
             await reply('⏳ _Posting link preview to group status…_');
             try {
-                await postRelayGroupStatus(sock, from, relaySourceMessage, relaySourceContextInfo, msg);
+                await postRelayGroupStatus(sock, from, relaySourceMessage, relaySourceContextInfo, msg, selectedColor);
                 return reply(
                     `✅ *Posted to group status!*\n` +
                     `━━━━━━━━━━━━━━━━\n` +
@@ -847,7 +880,7 @@ module.exports = Object.assign(module.exports, {
         }
 
         // ── TEXT / LINK (typed directly after .gcstatus) ─────────────────────
-        if (!caption) {
+        if (!statusCaption) {
             await reply('⏳ _Preparing the native group invite preview…_');
             try {
                 await postNativeGroupInviteStatus(sock, from);
@@ -859,14 +892,15 @@ module.exports = Object.assign(module.exports, {
 
         try {
             await reply('⏳ _Posting to group status…_');
-            const isUrl = /https?:\/\//i.test(caption);
+            const isUrl = /https?:\/\//i.test(statusCaption);
 
             if (isUrl) {
-                await postGroupStatusLinkPreview(sock, from, caption);
+                await postGroupStatusLinkPreview(sock, from, statusCaption, selectedColor);
             } else {
                 await postGroupStatus(sock, from, {
-                    text:            caption,
-                    backgroundColor: TEXT_BG_COLOR,
+                    text:            statusCaption,
+                    backgroundColor: selectedBackground,
+                    ringColor: selectedColor,
                 });
             }
 
@@ -874,7 +908,7 @@ module.exports = Object.assign(module.exports, {
                 `✅ *Posted to group status!*\n` +
                 `━━━━━━━━━━━━━━━━\n` +
                 `${isUrl ? '🔗' : '💬'} Type: *${isUrl ? 'Link' : 'Text'}*\n` +
-                `📝 _"${caption.slice(0, 60)}${caption.length > 60 ? '…' : ''}"_`
+                `📝 _"${statusCaption.slice(0, 60)}${statusCaption.length > 60 ? '…' : ''}"_`
             );
         } catch (err) {
             return reply(`❌ _Failed to post: ${err.message}_`);
