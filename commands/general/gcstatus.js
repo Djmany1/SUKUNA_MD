@@ -116,8 +116,9 @@ function buildStatusAudienceCtx(ringColorOverride) {
     const ringColor = normaliseStatusColor(ringColorOverride) || getStatusRingColor();
     return {
         isGroupStatus: true,
-        statusSourceType: 1,
+        statusSourceType: 4,
         pairedMediaType: 0,
+        statusAttributions: [{ type: 6 }],
         statusAudienceMetadata: {
             audienceType: 2,
             listName: STATUS_RING_NAME,
@@ -631,6 +632,7 @@ async function postGroupStatusLinkPreview(sock, groupJid, url, ringColorOverride
             text: url,
             richPreview: true,
             groupStatus: true,
+            statusJidList: await getGroupParticipantJids(sock, groupJid),
             contextInfo: buildStatusAudienceCtx(effectiveRingColor),
             ...(preview.title ? { previewTitle: preview.title } : {}),
             ...(preview.description ? { previewDescription: preview.description } : {}),
