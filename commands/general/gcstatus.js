@@ -463,11 +463,12 @@ function unwrapQuotedDeep(qm) {
 async function createImageLinkPreview(sock, url, title, description, imageBuffer, imageUrl, thumbnailBuffer) {
     try {
         let thumbnail = null;
-        // Prefer the original image URL, matching the sharper group-invite path.
-        // Use the downloaded/normalised buffer only if direct URL preparation fails.
+        // Prefer the downloaded high-resolution image buffer so WhatsApp does
+        // not derive the preview from a small remote thumbnail. Keep the
+        // original URL as a fallback when the local upload cannot be prepared.
         const sources = [];
-        if (imageUrl) sources.push({ image: { url: imageUrl } });
         if (imageBuffer) sources.push({ image: imageBuffer });
+        if (imageUrl) sources.push({ image: { url: imageUrl } });
         for (const source of sources) {
             try {
                 const prepared = await prepareWAMessageMedia(
