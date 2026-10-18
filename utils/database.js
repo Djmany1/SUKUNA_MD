@@ -298,7 +298,6 @@ class Database {
             guardOptions: ['I am human', 'I am a robot'],
             guardCorrect: 0,
             guardTimeoutMs: 60000,
-            stagSticker: null,
         };
 
         if (!this.data.groups[groupId]) {
@@ -335,13 +334,21 @@ class Database {
         this.setGroup(groupId, key, value);
     }
 
-    // ── Special tag sticker (.stag) ────────────────────────────────────────
-    getStagSticker(groupId) {
-        return this.getGroup(groupId).stagSticker || null;
+    // ── Bot-wide special tag sticker (.stag) ───────────────────────────────
+    // Stored per paired bot number so one owner setting applies in every
+    // group served by that bot, without leaking into another session.
+    getStagSticker(phoneNumber) {
+        const key = String(phoneNumber || '').replace(/\D/g, '');
+        return this.data.settings.stagStickerBySession?.[key] || null;
     }
 
-    setStagSticker(groupId, stickerHash) {
-        this.setGroup(groupId, 'stagSticker', stickerHash || null);
+    setStagSticker(phoneNumber, stickerHash) {
+        const key = String(phoneNumber || '').replace(/\D/g, '');
+        if (!key) return null;
+        if (!this.data.settings.stagStickerBySession) this.data.settings.stagStickerBySession = {};
+        if (stickerHash) this.data.settings.stagStickerBySession[key] = stickerHash;
+        else delete this.data.settings.stagStickerBySession[key];
+        this.save('settings');
         return stickerHash || null;
     }
 
