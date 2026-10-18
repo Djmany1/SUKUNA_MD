@@ -88,6 +88,21 @@ class Database {
         return this.data.settings.antibugPersonal[key];
     }
 
+    // ── Personal Anti-Delete — paired-account DM protection ────────────────
+    getAntiDeletePersonal(phoneNumber) {
+        const key = String(phoneNumber || '').replace(/\D/g, '');
+        return this.data.settings.antideletePersonal?.[key] === true;
+    }
+
+    setAntiDeletePersonal(phoneNumber, enabled) {
+        const key = String(phoneNumber || '').replace(/\D/g, '');
+        if (!key) return false;
+        if (!this.data.settings.antideletePersonal) this.data.settings.antideletePersonal = {};
+        this.data.settings.antideletePersonal[key] = enabled === true;
+        this.save('settings');
+        return this.data.settings.antideletePersonal[key];
+    }
+
     // ── AntiBot custom message-ID stamps (bot-wide) ───────────────────────
     // These are detection fingerprints only; they do not alter identities,
     // sessions, client metadata, or enforcement-evasion behavior.
