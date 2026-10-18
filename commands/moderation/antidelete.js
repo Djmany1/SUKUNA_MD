@@ -1,7 +1,7 @@
 /**
  * Anti-Delete — privately recovers deleted messages
  * Recovers text, images, videos, audio, documents and stickers to the owner DM
- * Usage: .antidelete (toggles group mode or personal-DM mode)
+ * Usage: .antidelete (group toggle or account-wide master toggle in DM)
  */
 'use strict';
 
@@ -18,15 +18,18 @@ module.exports = {
         if (isGroup && !isAdmin && !isOwner) return reply(`❌ _Only group admins can use this command._`);
 
         if (!isGroup) {
-            const current = database.getAntiDeletePersonal(phoneNumber);
+            const current = database.getAntiDeleteGlobal(phoneNumber);
             const next = !current;
+            database.setAntiDeleteGlobal(phoneNumber, next);
+            // Keep the older personal flag aligned for deployments that
+            // already used the previous DM-only implementation.
             database.setAntiDeletePersonal(phoneNumber, next);
             return reply(
-                `🗑️ *𝗔𝗡𝗧𝗜-𝗗𝗘𝗟𝗘𝗧𝗘 · 𝗣𝗘𝗥𝗦𝗢𝗡𝗔𝗟 𝗗𝗠* ⛧\n\n` +
+                `🗑️ *𝗔𝗡𝗧𝗜-𝗗𝗘𝗟𝗘𝗧𝗘 · 𝗔𝗖𝗖𝗢𝗨𝗡𝗧 𝗪𝗜𝗗𝗘* ⛧\n\n` +
                 (next
-                    ? `✅ *ON* — deleted messages from this personal chat will be recovered privately to the owner DM.`
-                    : `🔴 *OFF* — personal-DM recovery has been disabled.`) +
-                `\n\n> _𝘚𝘶𝘬𝘶𝘯𝘢 𝘔𝘋 · 𝘗𝘳𝘪𝘷𝘢𝘵𝘦 𝘙𝘦𝘤𝘰𝘷𝘦𝘳𝘺_`
+                    ? `✅ *ON* — deleted messages from every group and personal chat will be recovered privately to the owner DM.`
+                    : `🔴 *OFF* — account-wide antidelete recovery has been disabled.`) +
+                `\n\n> _𝘚𝘶𝘬𝘶𝘯𝘢 𝘔𝘋 · 𝘈𝘤𝘤𝘰𝘶𝘯𝘵 𝘙𝘦𝘤𝘰𝘷𝘦𝘳𝘺_`
             );
         }
 
