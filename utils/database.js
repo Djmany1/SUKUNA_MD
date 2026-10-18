@@ -298,6 +298,7 @@ class Database {
             guardOptions: ['I am human', 'I am a robot'],
             guardCorrect: 0,
             guardTimeoutMs: 60000,
+            stagSticker: null,
         };
 
         if (!this.data.groups[groupId]) {
@@ -332,6 +333,16 @@ class Database {
 
     setGroupData(groupId, key, value) {
         this.setGroup(groupId, key, value);
+    }
+
+    // ── Special tag sticker (.stag) ────────────────────────────────────────
+    getStagSticker(groupId) {
+        return this.getGroup(groupId).stagSticker || null;
+    }
+
+    setStagSticker(groupId, stickerHash) {
+        this.setGroup(groupId, 'stagSticker', stickerHash || null);
+        return stickerHash || null;
     }
 
     // Session mode (private/public per bot number)
