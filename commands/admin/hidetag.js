@@ -5,7 +5,7 @@
 
 module.exports = {
     name: 'hidetag',
-    aliases: ['htag', 'silentag', 'stag'],
+    aliases: ['htag', 'silentag'],
     description: 'Silently tag all group members (no admin needed)',
     category: 'admin',
 

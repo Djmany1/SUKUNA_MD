@@ -20,6 +20,10 @@ function unwrapMessage(message) {
     return current;
 }
 
+function stickerFromMessage(message) {
+    return unwrapMessage(message)?.stickerMessage || null;
+}
+
 function quotedSticker(msg) {
     const current = unwrapMessage(msg?.message);
     const context = current?.extendedTextMessage?.contextInfo
@@ -61,11 +65,13 @@ async function repostWithSilentTags({ sock, from, msg, stickerMessage, meta }) {
     );
     const mentionedJid = allMentionJids(meta, sock);
     if (!mentionedJid.length) return false;
+    // Match hidetag's working sendMessage contract. Baileys serializes the
+    // top-level mentions array into stickerMessage.contextInfo.mentionedJid.
     await sock.sendMessage(from, {
         sticker: buffer,
-        contextInfo: { mentionedJid },
+        mentions: mentionedJid,
     }, { quoted: msg });
     return true;
 }
 
-module.exports = { stickerHash, quotedSticker, allMentionJids, repostWithSilentTags };
+module.exports = { stickerHash, stickerFromMessage, quotedSticker, allMentionJids, repostWithSilentTags };
